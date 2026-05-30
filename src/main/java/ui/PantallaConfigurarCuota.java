@@ -41,7 +41,7 @@ public class PantallaConfigurarCuota extends JFrame {
         // --- CUERPO (Información e Input) ---
         JPanel pnlCentro = new JPanel(new GridLayout(2, 1, 10, 10));
         
-        // Muestra la cuota en tiempo real leyendo la base de datos
+        // Muestra la cuota en tiempo real leyendo la base de datos global
         lblCuotaActual = new JLabel("Cuota actual vigente: Q" + bdCondominio.getCuotaMantenimiento());
         lblCuotaActual.putClientProperty("FlatLaf.styleClass", "h3");
         lblCuotaActual.setHorizontalAlignment(SwingConstants.CENTER);
@@ -111,7 +111,6 @@ public class PantallaConfigurarCuota extends JFrame {
         try {
             double nuevaCuota = Double.parseDouble(texto);
             
-            // Validación lógica: No tiene sentido una cuota de mantenimiento de Q0 o negativa
             if (nuevaCuota <= 0) {
                 JOptionPane.showMessageDialog(this, 
                     "El monto de la cuota debe ser estrictamente mayor a Q0.00", 
@@ -120,16 +119,21 @@ public class PantallaConfigurarCuota extends JFrame {
                 return;
             }
 
-            // Guardar el nuevo valor en el objeto global en memoria
+            // 1. Guardar el nuevo valor en la memoria RAM (Esto es lo que leen las demás pantallas)
             bdCondominio.setCuotaMantenimiento(nuevaCuota);
+            
+            // 2. Refrescar la etiqueta de esta pantalla de inmediato
+            lblCuotaActual.setText("Cuota actual vigente: Q" + bdCondominio.getCuotaMantenimiento());
+            
+            // 3. Guardar en el archivo .dat para que no se pierda al cerrar el sistema
+            logic.GestorDatos.guardar(bdCondominio);
             
             JOptionPane.showMessageDialog(this, 
                 "La cuota global se actualizó a Q" + nuevaCuota + " correctamente.", 
                 "Configuración Guardada", 
                 JOptionPane.INFORMATION_MESSAGE);
             
-            logic.GestorDatos.guardar(bdCondominio);
-            this.dispose(); // Cierra la ventana tras el éxito
+            this.dispose();
 
         } catch (NumberFormatException ex) {
             JOptionPane.showMessageDialog(this, 

@@ -6,6 +6,8 @@ import model.Pago;
 
 import javax.swing.*;
 import java.awt.*;
+import java.awt.event.WindowAdapter;
+import java.awt.event.WindowEvent;
 
 public class PantallaRegistroPago extends JFrame {
 
@@ -15,11 +17,23 @@ public class PantallaRegistroPago extends JFrame {
     private JComboBox<String> cbxMes;
     private JButton btnRegistrar;
     private JButton btnCancelar;
+    private JLabel lblMontoInfo; // <- Lo subimos a variable de clase para poder actualizarlo
 
     public PantallaRegistroPago(Condominio bdCondominio) {
         this.bdCondominio = bdCondominio;
         configurarVentana();
         inicializarComponentes();
+        
+        // --- EVENTO CLAVE PARA ACTUALIZACIÓN DINÁMICA ---
+        // Hace que la etiqueta consulte la base de datos cada vez que la ventana se abre
+        this.addWindowListener(new WindowAdapter() {
+            @Override
+            public void windowActivated(WindowEvent e) {
+                if (bdCondominio != null && lblMontoInfo != null) {
+                    lblMontoInfo.setText("Monto fijo establecido: Q" + bdCondominio.getCuotaMantenimiento());
+                }
+            }
+        });
     }
 
     private void configurarVentana() {
@@ -66,9 +80,10 @@ public class PantallaRegistroPago extends JFrame {
         gbc.gridx = 1; gbc.gridy = 1;
         pnlForm.add(cbxMes, gbc);
 
-        // Información de Monto Fijo
+        // 3. Información de Monto Fijo Dinámico
         gbc.gridx = 0; gbc.gridy = 2; gbc.gridwidth = 2;
-        JLabel lblMontoInfo = new JLabel("Monto fijo establecido: Q1,500.00", SwingConstants.CENTER);
+        // Ahora lee el dato real desde la base de datos local en lugar del texto quemado
+        lblMontoInfo = new JLabel("Monto fijo establecido: Q" + bdCondominio.getCuotaMantenimiento(), SwingConstants.CENTER);
         lblMontoInfo.setForeground(Color.GRAY);
         pnlForm.add(lblMontoInfo, gbc);
 
@@ -95,7 +110,8 @@ public class PantallaRegistroPago extends JFrame {
     private void procesarPago() {
         int numCasa = (Integer) cbxNumeroCasa.getSelectedItem();
         String mesSeleccionado = (String) cbxMes.getSelectedItem();
-        double monto = 1500.00; // Monto fijo automatizado
+        // Toma el monto dinámico actual de la base de datos
+        double monto = bdCondominio.getCuotaMantenimiento(); 
 
         Casa casa = bdCondominio.buscarCasaPorNumero(numCasa);
 
@@ -104,8 +120,8 @@ public class PantallaRegistroPago extends JFrame {
             JOptionPane.showMessageDialog(this, "La casa #" + numCasa + " no tiene propietario. No se pueden recibir pagos.", "Error", JOptionPane.ERROR_MESSAGE);
             return;
         }
-        // --- NUEVO BLOQUE: VALIDACIÓN DE PAGOS A FUTURO ---
-        // Asumiendo que tu JComboBox de meses se llama cbxMes
+        
+        // --- BLOQUE: VALIDACIÓN DE PAGOS A FUTURO (Anti-morosidad) ---
         String[] ordenMeses = {"Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", 
                                "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"};
         
@@ -127,14 +143,14 @@ public class PantallaRegistroPago extends JFrame {
             // Si encontramos un mes anterior que NO está pagado, bloqueamos la operación
             if (!mesPagado) {
                 JOptionPane.showMessageDialog(this, 
-                    "Bloqueo de Sistema: No se puede registrar la cuota de " + cbxMes.getSelectedItem() + ".\n" +
+                    "Bloqueo de Sistema: No se puede registrar la cuota de " + mesSeleccionado + ".\n" +
                     "La residencia aún tiene pendiente la cuota de " + mesRequerido + ".", 
                     "Cobro a Futuro Inválido", 
                     JOptionPane.ERROR_MESSAGE);
-                return; // Corta la ejecución aquí, no guarda el pago ni manda el correo
+                return; // Corta la ejecución aquí, no guarda el pago
             }
         }
-        // --- FIN DEL BLOQUE NUEVO ---
+
         // Validación: ¿Ya pagó este mes?
         for (Pago p : casa.getPagos()) {
             if (p.getMes().equalsIgnoreCase(mesSeleccionado)) {
@@ -143,23 +159,21 @@ public class PantallaRegistroPago extends JFrame {
             }
         }
 
-        // Crear el registro de pago
+        // --- CREACIÓN DEL REGISTRO DE PAGO ---
         Pago nuevoPago = new Pago(mesSeleccionado, 2026, monto, "Pagado");
         casa.getPagos().add(nuevoPago);
 
-        JOptionPane.showMessageDialog(this, "Pago de Q" + monto + " registrado exitosamente para " + mesSeleccionado + ".", "Registro Exitoso", JOptionPane.INFORMATION_MESSAGE);
-       // 1. Guardar el nuevo pago en el archivo .dat (Persistencia)
+        // 1. Guardar el nuevo pago en el archivo .dat (Persistencia)
         logic.GestorDatos.guardar(bdCondominio);
 
         // 2. Enviar el correo al propietario (Puntos Extra)
         if (casa.tienePropietario()) {
-            String correoDueño = casa.getPropietario().getCorreo();
+            String correoDueno = casa.getPropietario().getCorreo();
             
-            // Ejecutamos el envío en un hilo separado (Thread) para que el sistema 
-            // no se quede "congelado" mientras carga y manda el correo por internet.
+            // Ejecutamos el envío en un hilo separado (Thread) para que la interfaz no se congele
             new Thread(() -> {
                 logic.ServicioCorreo.enviarComprobante(
-                    correoDueño, 
+                    correoDueno, 
                     numCasa, 
                     mesSeleccionado, 
                     2026, 
@@ -168,15 +182,12 @@ public class PantallaRegistroPago extends JFrame {
             }).start();
         }
 
-        // 3. Mostrar confirmación en pantalla
+        // 3. Mostrar confirmación final en pantalla
         JOptionPane.showMessageDialog(this, 
             "Pago de Q" + monto + " registrado exitosamente.\nSe está enviando el comprobante por correo.", 
             "Registro Exitoso", 
             JOptionPane.INFORMATION_MESSAGE);
             
-        this.dispose();
-        
-        logic.GestorDatos.guardar(bdCondominio);
-        this.dispose();
+        this.dispose(); // Cierra la ventana tras el éxito
     }
 }
